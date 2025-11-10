@@ -14,13 +14,19 @@ from sklearn.linear_model import LinearRegression
 
 # ============================================================================
 # --- CONFIGURAÇÃO DO CLIENTE ---
-# ID e Estações do cliente "Dirceu Martins Comiran"
+# ID e Estações do cliente "Clayton Sheiki Tessaro"
 # ============================================================================
-CLIENTE_ID = 2271718 # ID DO CLIENTE (GROWER_ID)
-CLIENTE_NOME = "Dirceu Martins Comiran" # NOME DO CLIENTE
+CLIENTE_ID = 92088 # ID DO CLIENTE (GROWER_ID)
+CLIENTE_NOME = "Clayton Sheiki Tessaro" # NOME DO CLIENTE
 ESTACOES_DO_CLIENTE = [
-    {'name': 'Portal da Amazonia', 'id_estacao': '58972', 'latitude': -14.0032, 'longitude': -59.2614},
-    {'name': 'Portal da Amazonia2', 'id_estacao': '65907', 'latitude': -14.0104, 'longitude': -59.2108},
+    {'name': 'Santa Ernestina T05', 'id_estacao': '80977', 'latitude': -12.4756, 'longitude': -55.6867},
+    {'name': 'Santa Ernestina T07', 'id_estacao': '80985', 'latitude': -12.4168, 'longitude': -55.7401},
+    {'name': 'Santa Ernestina T04', 'id_estacao': '80986', 'latitude': -12.4778, 'longitude': -55.7003},
+    {'name': 'Santa Ernestina T12', 'id_estacao': '80984', 'latitude': -12.4005, 'longitude': -55.7182},
+    {'name': 'Santa Ernestina', 'id_estacao': '39266', 'latitude': -12.4048, 'longitude': -55.740738},
+    {'name': 'Santa Ernestina T03', 'id_estacao': '37191', 'latitude': -12.496, 'longitude': -55.6931},
+    {'name': 'Santa Ernestina T13', 'id_estacao': '59504', 'latitude': -12.3868, 'longitude': -55.7189},
+    {'name': 'Santa Ernestina T11', 'id_estacao': '65610', 'latitude': -12.4196, 'longitude': -55.7304},
 ]
 # Define quantos anos de dados históricos buscar
 ANOS_DE_HISTORICO = 5
@@ -1047,4 +1053,5 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         # Faz o script falhar para que o GitHub Actions reporte o erro
+
         exit(1)
