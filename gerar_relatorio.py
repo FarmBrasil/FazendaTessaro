@@ -84,7 +84,7 @@ class RelatorioClimaCompleto:
         # ============================================================================
         
         self.weather_url_base = "https://admin.farmcommand.com/weather/{}/historical-summary-hourly/"
-        self.assets_url = "https://admin.farmcommand.com/asset/?season=1083"
+        self.assets_url = "https://admin.farmcommand.com/asset/?season=1080"
         self.field_border_url = "https://admin.farmcommand.com/fieldborder/?assetID={}&format=json"
         self.forecast_url = "https://admin.farmcommand.com/weather/wsi/daily-forecast/"
         self.hourly_forecast_url = "https://admin.farmcommand.com/weather/wsi/hourly-forecast/"
@@ -1055,4 +1055,5 @@ if __name__ == "__main__":
         # Faz o script falhar para que o GitHub Actions reporte o erro
 
         exit(1)
+
 
