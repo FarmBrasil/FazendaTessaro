@@ -1,0 +1,53 @@
+# Nome do seu "Agendador"
+name: Gerar Relatório Climático Diário
+
+# Quando este workflow deve rodar?
+on:
+  schedule:
+    # Agendado para rodar todo dia às 10:00 UTC (6h da manhã no MT)
+    - cron: '0 10 * * *' 
+  
+  # Permite que você rode manualmente
+  workflow_dispatch:
+
+# O que fazer?
+jobs:
+  build-and-deploy:
+    # Em qual "computador" virtual?
+    runs-on: ubuntu-latest 
+    
+    # Os passos
+    steps:
+      # 1. Baixar o código
+      - name: Checkout (Baixar o código)
+        uses: actions/checkout@v3
+
+      # 2. Instalar o Python
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      # 3. Instalar as bibliotecas
+      - name: Install dependencies (Instalar bibliotecas)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      # 4. Executar o seu script
+      - name: Run Python script (Executar o script)
+        env:
+          HISTORICAL_SESSIONID: ${{ secrets.HISTORICAL_SESSIONID }}
+          HISTORICAL_CSRFTOKEN: ${{ secrets.HISTORICAL_CSRFTOKEN }}
+          FORECAST_SESSIONID: ${{ secrets.FORECAST_SESSIONID }}
+          FORECAST_CSRFTOKEN: ${{ secrets.FORECAST_CSRFTOKEN }}
+        run: |
+          python gerar_relatorio.py
+
+      # 5. Publicar o site
+      - name: Deploy to GitHub Pages (Publicar o site)
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: dist
+          clean: true
