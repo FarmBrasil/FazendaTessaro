@@ -34,17 +34,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           
-      # 4. Executar o seu script
+      # 4. Executar o seu script (AQUI ESTÁ A MUDANÇA)
       - name: Run Python script (Executar o script)
+        # Agora passamos seu Usuario e Senha para o farm_auth.py
         env:
-          HISTORICAL_SESSIONID: ${{ secrets.HISTORICAL_SESSIONID }}
-          HISTORICAL_CSRFTOKEN: ${{ secrets.HISTORICAL_CSRFTOKEN }}
-          FORECAST_SESSIONID: ${{ secrets.FORECAST_SESSIONID }}
-          FORECAST_CSRFTOKEN: ${{ secrets.FORECAST_CSRFTOKEN }}
+          FARM_USER: ${{ secrets.FARM_USER }}
+          FARM_PASS: ${{ secrets.FARM_PASS }}
         run: |
           python gerar_relatorio.py
 
-      # 5. Publicar o site
+      # 5. Publicar o site (Mantive o seu original que funciona)
       - name: Deploy to GitHub Pages (Publicar o site)
         uses: JamesIves/github-pages-deploy-action@v4
         with:
