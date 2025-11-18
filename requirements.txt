@@ -5,3 +5,4 @@ prophet
 statsmodels
 scikit-learn
 openpyxl
+python-dotenv
