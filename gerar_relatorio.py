@@ -6,11 +6,22 @@ import time
 from datetime import datetime, timedelta
 import os
 import math
+import sys # <-- ADICIONADO
 
 # --- Novas importações para os modelos de predição ---
 from prophet import Prophet
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.linear_model import LinearRegression
+
+# --- ADICIONADO: Importa a função de login ---
+try:
+    from farm_auth import get_authenticated_session
+except ImportError:
+    print("❌ ERRO CRÍTICO: Não foi possível encontrar o arquivo 'farm_auth.py'.")
+    print("   Certifique-se de que 'farm_auth.py' está na mesma pasta que este script.")
+    sys.exit(1) # Para o script
+# --- FIM DA ADIÇÃO ---
+
 
 # ============================================================================
 # --- CONFIGURAÇÃO DO CLIENTE ---
@@ -38,49 +49,18 @@ class RelatorioClimaCompleto:
     Classe para gerar um relatório HTML, lendo credenciais do ambiente
     e focada em um único cliente pré-definido.
     """
-    def __init__(self, grower_id: int, grower_name: str, stations: list):
+    # --- MODIFICADO: O __init__ agora recebe a sessão ---
+    def __init__(self, grower_id: int, grower_name: str, stations: list, session: requests.Session):
         
         # ============================================================================
-        # !! IMPORTANTE !! Lendo credenciais das Variáveis de Ambiente (Secrets)
+        # !! IMPORTANTE !! A sessão autenticada agora é INJETADA
         # ============================================================================
         
-        # Tente ler as variáveis de ambiente. Se falhar, avise.
-        hist_sessionid = os.environ.get('HISTORICAL_SESSIONID')
-        hist_csrftoken = os.environ.get('HISTORICAL_CSRFTOKEN')
-        fc_sessionid = os.environ.get('FORECAST_SESSIONID')
-        fc_csrftoken = os.environ.get('FORECAST_CSRFTOKEN')
+        # 1. Armazena a sessão viva que veio do farm_auth.py
+        self.session = session 
         
-        if not all([hist_sessionid, hist_csrftoken, fc_sessionid, fc_csrftoken]):
-            print("ERRO CRÍTICO: As variáveis de ambiente (credenciais) não foram encontradas.")
-            print("Certifique-se de configurar os Secrets no GitHub.")
-            raise ValueError("Credenciais da API não definidas.")
-
-        # --- CREDENCIAIS PARA DADOS HISTÓRICOS ---
-        self.historical_cookies = { 'sessionid': hist_sessionid, 'csrftoken': hist_csrftoken }
-        self.historical_headers = {
-            "accept": "application/json", "Content-Type": "application/json",
-            "X-CSRFToken": hist_csrftoken,
-            "Referer": "https://admin.farmcommand.com/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
+        # (TODO O BLOCO ANTIGO DE LER SECRETS E CRIAR COOKIES/HEADERS FOI REMOVIDO)
         
-        # --- CREDENCIAIS PARA PREVISÃO DO TEMPO DIÁRIA ---
-        self.forecast_cookies = { 'sessionid': fc_sessionid, 'csrftoken': fc_csrftoken }
-        self.forecast_headers = {
-            "accept": "application/json", "Content-Type": "application/json",
-            "X-CSRFToken": fc_csrftoken,
-            "Referer": "https://admin.farmcommand.com/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-        
-        # --- CREDENCIAIS PARA PREVISÃO DO TEMPO HORÁRIA ---
-        self.hourly_forecast_cookies = { 'sessionid': fc_sessionid, 'csrftoken': fc_csrftoken }
-        self.hourly_forecast_headers = {
-            "accept": "application/json", "Content-Type": "application/json",
-            "X-CSRFToken": fc_csrftoken,
-            "Referer": "https://admin.farmcommand.com/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
         # ============================================================================
         
         self.weather_url_base = "https://admin.farmcommand.com/weather/{}/historical-summary-hourly/"
@@ -121,14 +101,27 @@ class RelatorioClimaCompleto:
         }
         return translations.get(phrase, phrase)
     
+    # --- MODIFICADO: _make_request (para GET) ---
     def _make_request(self, url: str, params: dict = None) -> dict | list | None:
         """Realiza uma requisição GET para a API de dados históricos."""
         try:
-            response = requests.get(url, params=params, cookies=self.historical_cookies, headers=self.historical_headers, timeout=180)
+            # Usa self.session.get e não passa cookies/headers
+            response = self.session.get(url, params=params, timeout=180)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
             print(f" -> Erro de requisição para {url}: {e}.")
+            
+            # Tenta re-autenticar se a sessão expirou
+            if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code in [401, 403]:
+                print("Sessão expirada (erro 401/403). Tentando re-autenticar...")
+                self.session = get_authenticated_session() # Tenta logar de novo
+                if self.session:
+                    print("Re-autenticado. Tentando requisição novamente...")
+                    return self._make_request(url, params) # Tenta de novo com a nova sessão
+                else:
+                    print("Falha na re-autenticação.")
+
             return None
 
     def get_field_borders_for_grower(self, grower_id: int) -> list:
@@ -176,10 +169,11 @@ class RelatorioClimaCompleto:
             api_start = current_dt.strftime('%Y-%m-%dT00:00:00')
             api_end = chunk_end_dt.strftime('%Y-%m-%dT23:59:59')
             
-            print(f"       Buscando dados de {current_dt.strftime('%Y-%m-%d')} a {chunk_end_dt.strftime('%Y-%m-%d')}...")
+            print(f"        Buscando dados de {current_dt.strftime('%Y-%m-%d')} a {chunk_end_dt.strftime('%Y-%m-%d')}...")
             
             url = self.weather_url_base.format(station_id)
             params = {'startDate': api_start, 'endDate': api_end, 'format': 'json'}
+            # Usa a mesma função _make_request (que usa self.session)
             json_data = self._make_request(url, params=params)
             
             if json_data and 'results' in json_data:
@@ -191,6 +185,7 @@ class RelatorioClimaCompleto:
         print(f"--- Busca para a estação {station_id} concluída. {len(all_results)} registros horários encontrados. ---")
         return all_results
 
+    # --- MODIFICADO: buscar_previsao_clima (para POST) ---
     def buscar_previsao_clima(self, lat: float, lon: float) -> list:
         """Busca e processa os dados de previsão para os próximos 10 dias de forma robusta."""
         data = {"lat": lat, "lon": lon, "unit": "m"}
@@ -199,23 +194,21 @@ class RelatorioClimaCompleto:
         
         for attempt in range(max_retries):
             try:
-                response = requests.post(
+                # Usa self.session.post e não passa cookies/headers
+                response = self.session.post(
                     self.forecast_url,
-                    headers=self.forecast_headers,
-                    cookies=self.forecast_cookies,
                     json=data,
                     timeout=60
                 )
                 response.raise_for_status()
                 api_data = response.json()
                 
+                # ... (resto da função sem alteração) ...
                 previsoes_processadas = []
                 forecasts_raw = api_data.get("forecasts", [])[:10]
-
                 if not forecasts_raw:
                     print(" -> Aviso: API de previsão diária retornou uma lista vazia.")
                     return []
-
                 for forecast in forecasts_raw:
                     dia_dados = forecast.get('day', {})
                     data_previsao = datetime.fromtimestamp(forecast.get("fcst_valid", 0))
@@ -231,7 +224,6 @@ class RelatorioClimaCompleto:
                         "vento_dir": dia_dados.get("wdir_cardinal", "N/D"),
                     }
                     previsoes_processadas.append(previsao_dia)
-                
                 print(f" -> Sucesso! Previsão diária de {len(previsoes_processadas)} dias encontrada.")
                 return previsoes_processadas
 
@@ -245,6 +237,7 @@ class RelatorioClimaCompleto:
         
         return []
 
+    # --- MODIFICADO: buscar_previsao_horaria (para POST) ---
     def buscar_previsao_horaria(self, lat: float, lon: float) -> list:
         """Busca e processa os dados de previsão horária para as próximas 48 horas."""
         data = {"lat": lat, "lon": lon, "unit": "m"}
@@ -253,23 +246,21 @@ class RelatorioClimaCompleto:
         
         for attempt in range(max_retries):
             try:
-                response = requests.post(
+                # Usa self.session.post e não passa cookies/headers
+                response = self.session.post(
                     self.hourly_forecast_url,
-                    headers=self.hourly_forecast_headers,
-                    cookies=self.hourly_forecast_cookies,
                     json=data,
                     timeout=60
                 )
                 response.raise_for_status()
                 api_data = response.json()
                 
+                # ... (resto da função sem alteração) ...
                 previsoes_processadas = []
                 forecasts_raw = api_data.get("forecasts", [])[:48]
-
                 if not forecasts_raw:
                     print(" -> Aviso: API de previsão horária retornou uma lista vazia.")
                     return []
-
                 for hour_data in forecasts_raw:
                     previsao_hora = {
                         "fcst_valid_local": hour_data.get("fcst_valid_local"),
@@ -281,10 +272,8 @@ class RelatorioClimaCompleto:
                         "qpf": hour_data.get("qpf", 0.0)
                     }
                     previsoes_processadas.append(previsao_hora)
-                
                 print(f" -> Sucesso! Previsão de {len(previsoes_processadas)} horas encontrada.")
                 return previsoes_processadas
-
             except requests.exceptions.RequestException as e:
                 print(f" -> Falha na requisição da previsão horária (Tentativa {attempt + 1}/{max_retries}): {e}")
                 if attempt < max_retries - 1:
@@ -295,6 +284,13 @@ class RelatorioClimaCompleto:
         
         return []
 
+    #
+    # ... (TODOS OS OUTROS MÉTODOS) ...
+    # _is_in_mato_grosso, processar_para_dataframe, 
+    # gerar_predicao_clima, gerar_html_final, gerar_relatorio_unico
+    # ... (PERMANECEM EXATAMENTE IGUAIS) ...
+    #
+    
     def _is_in_mato_grosso(self, lat: float, lon: float) -> bool:
         """Verifica se um par de coordenadas está dentro da caixa delimitadora do Mato Grosso."""
         if lat is None or lon is None: return False
@@ -328,7 +324,7 @@ class RelatorioClimaCompleto:
         for col in df.columns:
             if col != 'datetime': df[col] = pd.to_numeric(df[col], errors='coerce')
         
-        print(f"       Analisando {len(df)} registros horários para a estação '{station_name}'...")
+        print(f"        Analisando {len(df)} registros horários para a estação '{station_name}'...")
         initial_rows = len(df)
         
         # --- INÍCIO DA REVISÃO COMPLETA DOS FILTROS ---
@@ -368,7 +364,7 @@ class RelatorioClimaCompleto:
         final_rows = len(df)
         
         if (initial_rows - final_rows) > 0:
-            print(f"       Limpeza concluída. Total de {initial_rows - final_rows} registros inválidos removidos.")
+            print(f"        Limpeza concluída. Total de {initial_rows - final_rows} registros inválidos removidos.")
         
         df['nome_estacao'] = station_name
         df['station_id'] = station_id
@@ -426,7 +422,7 @@ class RelatorioClimaCompleto:
                 forecast_m = model.predict(future_df_m)
                 forecasts_12_months['Prophet'] = [max(0, y) for y in forecast_m['yhat']]
         except Exception as e:
-            print(f"       ! Falha ao rodar Prophet (mensal): {e}")
+            print(f"        ! Falha ao rodar Prophet (mensal): {e}")
 
         # --- ARIMA ---
         print(" -> Executando modelo: ARIMA...")
@@ -437,7 +433,7 @@ class RelatorioClimaCompleto:
                 forecast_m = model_fit.get_forecast(steps=12).predicted_mean
                 forecasts_12_months['ARIMA'] = [max(0, y) for y in forecast_m]
         except Exception as e:
-            print(f"       ! Falha ao rodar ARIMA (mensal): {e}")
+            print(f"        ! Falha ao rodar ARIMA (mensal): {e}")
         
         # --- Regressão Linear ---
         print(" -> Executando modelo: Regressão Linear...")
@@ -457,7 +453,7 @@ class RelatorioClimaCompleto:
                     lr_monthly_preds.append(np.nan)
             forecasts_12_months['Regressão Linear'] = lr_monthly_preds
         except Exception as e:
-            print(f"       ! Falha ao rodar Regressão Linear (mensal): {e}")
+            print(f"        ! Falha ao rodar Regressão Linear (mensal): {e}")
 
         # --- Predição Semanal ---
         average_weekly_precipitation = weekly_df.groupby(weekly_df['date'].dt.isocalendar().week)['total_precipitation'].mean()
@@ -554,8 +550,8 @@ class RelatorioClimaCompleto:
         <div id="tabDeltaT" class="tab-content"><div class="charts-grid" style="grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));"><div class="chart-card"><h3>Análise Mensal da Janela de Pulverização (% de Horas)</h3><div class="chart-canvas-wrapper"><canvas id="chartSprayConditionsByMonth"></canvas></div></div><div class="chart-card"><h3>Condições Médias por Hora (Vento e Delta T)</h3><div class="chart-canvas-wrapper"><canvas id="chartVentoDeltaTHorario"></canvas></div></div><div class="chart-card"><h3>Média de GFDI por Hora</h3><div class="chart-canvas-wrapper"><canvas id="chartGFDIHorario"></canvas></div></div></div></div>
         <div id="tabMonitoramento" class="tab-content"><div class="calendar-container"><div class="calendar-header"><button id="prev-month-btn">&lt; Mês Anterior</button><h2 id="month-year-header"></h2><button id="next-month-btn">Próximo Mês &gt;</button></div><div class="calendar-weekdays"><div>Dom</div><div>Seg</div><div>Ter</div><div>Qua</div><div>Qui</div><div>Sex</div><div>Sáb</div></div><div id="calendar-grid" class="calendar-grid"></div></div><div id="daily-details-container" style="display: none;"><h2 id="selected-day-header" style="text-align: center;"></h2><div class="charts-grid" style="grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));"><div class="chart-card"><h3>Condições de Vento e Delta T</h3><div class="chart-canvas-wrapper"><canvas id="chartVentoDeltaTDiario"></canvas></div></div><div class="chart-card"><h3>Condições Térmicas e de Umidade</h3><div class="chart-canvas-wrapper"><canvas id="chartTempUmidadeDiario"></canvas></div></div><div class="chart-card"><h3>Precipitação Horária (mm)</h3><div class="chart-canvas-wrapper"><canvas id="chartChuvaHoraria"></canvas></div></div><div class="chart-card"><h3>Rosa dos Ventos do Dia</h3><div class="chart-canvas-wrapper"><canvas id="chartVentoRosaDiario"></canvas></div></div><div class="chart-card" id="spraying-window-card"><h3>Janela de Pulverização do Dia</h3><div id="spraying-window-container"></div><div class="spray-legend"><div class="legend-item"><div class="legend-color-box" style="background-color:#28a745;"></div>Ideal</div><div class="legend-item"><div class="legend-color-box" style="background-color:#ffc107;"></div>Atenção</div><div class="legend-item"><div class="legend-color-box" style="background-color:#dc3545;"></div>Evitar</div><div class="legend-item"><div class="legend-color-box" style="background-color:#6c757d;"></div>S/ Dados</div></div><p id="spraying-summary"></p></div></div></div></div>
         <div id="tabAvisos" class="tab-content">
-                 <div id="future-alerts-container"></div>
-                 <div id="historical-alerts-container"></div>
+                    <div id="future-alerts-container"></div>
+                    <div id="historical-alerts-container"></div>
         </div>
         <div id="tabMapa" class="tab-content"><div class="map-header"><label for="map-metric-selector">Visualizar no Mapa:</label><select id="map-metric-selector"><option value="chuva" selected>Chuva Acumulada (mm)</option><option value="temp_media">Temperatura Média (°C)</option><option value="umidade_media">Umidade Média (%)</option><option value="vento_medio">Vento Médio (km/h)</option><option value="rajada_max">Rajada Máxima (km/h)</option></select></div><div id="map-container"></div></div>
         <div id="tabPrevisao" class="tab-content">
@@ -1030,20 +1026,31 @@ class RelatorioClimaCompleto:
 
 
 # ============================================================================
-# --- BLOCO DE EXECUÇÃO PRINCIPAL ---
+# --- BLOCO DE EXECUÇÃO PRINCIPAL (MODIFICADO) ---
 # ============================================================================
 if __name__ == "__main__":
     print("Iniciando o script de geração de relatório...")
     
     try:
-        # 1. Instancia a classe com os dados de configuração
+        # --- NOVO BLOCO DE AUTENTICAÇÃO ---
+        print("Iniciando autenticação via farm_auth...")
+        sessao_autenticada = get_authenticated_session()
+        
+        if not sessao_autenticada:
+            print("❌ ERRO CRÍTICO: Falha na autenticação. Encerrando.")
+            sys.exit(1) # Para o script se o login falhar
+        print("Autenticação principal bem-sucedida.")
+        # --- FIM DO NOVO BLOCO ---
+        
+        # 1. Instancia a classe, AGORA PASSANDO A SESSÃO
         analisador = RelatorioClimaCompleto(
             grower_id=CLIENTE_ID,
             grower_name=CLIENTE_NOME,
-            stations=ESTACOES_DO_CLIENTE
+            stations=ESTACOES_DO_CLIENTE,
+            session=sessao_autenticada  # <--- AQUI ESTÁ A MUDANÇA
         )
         
-        # 2. Roda a geração do relatório
+        # 2. Roda a geração do relatório (sem mudanças aqui)
         analisador.gerar_relatorio_unico()
         
         print("\n--- Geração de Relatório Concluída com Sucesso ---")
@@ -1053,10 +1060,4 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         # Faz o script falhar para que o GitHub Actions reporte o erro
-
         exit(1)
-
-
-
-
-
