@@ -128,8 +128,6 @@ class RelatorioClimaCompleto:
             api_start = current_dt.strftime('%Y-%m-%dT00:00:00')
             api_end = chunk_end_dt.strftime('%Y-%m-%dT23:59:59')
             
-            # print(f"        Buscando dados de {current_dt.strftime('%Y-%m-%d')} a {chunk_end_dt.strftime('%Y-%m-%d')}...")
-            
             url = self.weather_url_base.format(station_id)
             params = {'startDate': api_start, 'endDate': api_end, 'format': 'json'}
             json_data = self._make_request(url, params=params)
@@ -230,7 +228,7 @@ class RelatorioClimaCompleto:
             'umidade_min_perc': r.get('min_relative_humidity'), 'umidade_max_perc': r.get('max_relative_humidity'),
             'vento_medio_kph': r.get('avg_windspeed_kph'), 'rajada_max_kph': r.get('wind_gust_kph', {}).get('max'),
             'vento_direcao_graus': get_wind_direction(r), 'delta_t': r.get('avgDeltaT'), 'gfdi': r.get('avgGFDI'),
-            'radiacao_solar': r.get('sumSolarRadiation', 0.0) # <--- ADICIONADO: Radiação
+            'radiacao_solar': r.get('sumSolarRadiation', 0.0)
         } for r in json_list]
         
         df = pd.DataFrame(records)
@@ -494,10 +492,12 @@ class RelatorioClimaCompleto:
                 charts.tempUmidadeDiario = new Chart(document.getElementById('chartTempUmidadeDiario'), {type: 'line', options: {...commonOptions, scales: { x: commonOptions.scales.x, y_temp: { type: 'linear', position: 'left', title: { display: true, text: 'Temperatura (°C)', color: '#ff9f40' } }, y_rh: { type: 'linear', position: 'right', title: { display: true, text: 'Umidade (%)', color: '#4bc0c0' }, grid: { drawOnChartArea: false } } } }}); 
                 charts.ventoRosaDiario = new Chart(document.getElementById('chartVentoRosaDiario'), { type: 'polarArea', options: { ...commonOptions, plugins: {...commonOptions.plugins, legend: {position: 'right'}}, scales: { r: { ticks: { backdropColor: 'rgba(0,0,0,0.5)', color: 'white' } } } } }); 
                 
-                // --- NOVOS GRÁFICOS DE RADIAÇÃO ---
+                // --- NOVOS GRÁFICOS DE RADIAÇÃO (CONFIGURAÇÃO) ---
                 charts.radPorDia = new Chart(document.getElementById('chartRadPorDia'), { type: 'bar', options: { ...commonOptions, plugins: { legend: { display: false } } }, data: { labels: [], datasets: [{ label: 'Radiação (MJ/m²)', data: [], backgroundColor: '#ff9f40' }] } });
                 charts.radPorHora = new Chart(document.getElementById('chartRadPorHora'), { type: 'bar', options: { ...commonOptions, plugins: { legend: { display: false } }, scales: { x: { title: { display: true, text: 'Hora do Dia' } } } }, data: { labels: Array(24).fill(0).map((_, i) => `${i}h`), datasets: [{ label: 'Média Horária (MJ/m²)', data: [], backgroundColor: '#36a2eb' }] } });
-                charts.radDetalhado = new Chart(document.getElementById('chartRadDetalhado'), { type: 'bar', options: { ...commonOptions, maintainAspectRatio: false, barPercentage: 1.0, categoryPercentage: 1.0, plugins: { legend: { display: false } } }, data: { labels: [], datasets: [{ label: 'Radiação Horária', data: [], backgroundColor: '#ffcd56' }] } });
+                
+                // --- AJUSTE VISUAL: categoryPercentage e barPercentage em 1.0 para remover espaços ---
+                charts.radDetalhado = new Chart(document.getElementById('chartRadDetalhado'), { type: 'bar', options: { ...commonOptions, maintainAspectRatio: false, scales: { x: { grid: { display: false } } }, categoryPercentage: 1.0, barPercentage: 1.0, plugins: { legend: { display: false } } }, data: { labels: [], datasets: [{ label: 'Radiação Horária', data: [], backgroundColor: '#ffcd56' }] } });
 
                 document.getElementById('start-date').addEventListener('change', atualizarTudo); document.getElementById('end-date').addEventListener('change', atualizarTudo); document.getElementById('station-filter').addEventListener('change', atualizarTudo); document.getElementById('forecast-station-selector').addEventListener('change', updateForecastDisplay); document.getElementById('map-metric-selector').addEventListener('change', atualizarMapa); document.getElementById('prev-month-btn').addEventListener('click', () => { calendarDate.setUTCMonth(calendarDate.getUTCMonth() - 1); renderCalendar(calendarDate); }); document.getElementById('next-month-btn').addEventListener('click', () => { calendarDate.setUTCMonth(calendarDate.getUTCMonth() + 1); renderCalendar(calendarDate); }); 
                 iniciarMapa(); atualizarTudo(); 
@@ -525,20 +525,24 @@ class RelatorioClimaCompleto:
                 const hourlyDeltaT = Array(24).fill(0).map(()=>[]); const hourlyWind = Array(24).fill(0).map(()=>[]); data.forEach(d => { const hour = d.datetime.getUTCHours(); if(d.delta_t !== null && !isNaN(d.delta_t)) hourlyDeltaT[hour].push(d.delta_t); if(d.vento_medio_kph !== null && !isNaN(d.vento_medio_kph)) hourlyWind[hour].push(d.vento_medio_kph); }); const hourLabels = Array(24).fill(0).map((_,i)=>`${String(i).padStart(2,'0')}:00`); charts.ventoDeltaTHorario.data.labels = hourLabels; charts.ventoDeltaTHorario.data.datasets = [ { label: 'Delta T Médio (°C)', data: hourlyDeltaT.map(h=>h.length > 0 ? h.reduce((a,b)=>a+b,0)/h.length : NaN), borderColor: '#ff6384', backgroundColor: 'rgba(255, 99, 132, 0.2)', yAxisID: 'y_deltat', fill: true, tension: 0.4 }, { label: 'Vento Médio (km/h)', data: hourlyWind.map(h=>h.length > 0 ? h.reduce((a,b)=>a+b,0)/h.length : NaN), borderColor: '#36a2eb', backgroundColor: 'rgba(54, 162, 235, 0.2)', yAxisID: 'y_vento', fill: true, tension: 0.4 } ]; charts.ventoDeltaTHorario.update();
                 const hourlyGFDI = Array(24).fill(0).map(()=>[]); data.forEach(d => { if(d.gfdi !== null && !isNaN(d.gfdi)) hourlyGFDI[d.datetime.getUTCHours()].push(d.gfdi); }); charts.gfdiHorario.data.labels = hourLabels; charts.gfdiHorario.data.datasets = [{ label: 'GFDI Médio', data: hourlyGFDI.map(h=>h.length > 0 ? h.reduce((a,b)=>a+b,0)/h.length : NaN), borderColor:'#ffc107', backgroundColor: 'rgba(255, 193, 7, 0.2)', fill: true, tension: 0.4 }]; charts.gfdiHorario.update();
                 
-                // --- ATUALIZAÇÃO RADIAÇÃO (COM FILTRO OUT/2025) ---
+                // --- ATUALIZAÇÃO RADIAÇÃO (COM FILTRO RÍGIDO >= 05/11/2025) ---
+                const dataInicioRad = new Date('2025-11-05T00:00:00Z');
+
                 // 1. Filtra os dados agregados por dia para mostrar apenas >= 05/11/2025
                 const radDailyData = dailyAggregated.filter(d => d.data_str >= '2025-11-05');
                 const labelsDia = radDailyData.map(d => d.data_str);
                 const dataRadDia = radDailyData.map(d => d.radiacao_solar_total);
                 
                 // 2. Filtra os dados brutos (horários) para mostrar médias apenas >= 05/11/2025
-                const radRawData = data.filter(d => d.datetime >= new Date('2025-11-05'));
+                const radRawData = data.filter(d => d.datetime >= dataInicioRad);
                 const radPorHora = Array(24).fill(0).map(() => []);
                 radRawData.forEach(d => { if (d.radiacao_solar !== null) radPorHora[d.datetime.getUTCHours()].push(d.radiacao_solar); });
                 const dataRadHoraMedia = radPorHora.map(vals => vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0);
                 
-                const labelsDetalhado = radRawData.map(d => { const dt = d.datetime; return `${dt.getUTCDate()}/${dt.getUTCMonth()+1} ${dt.getUTCHours()}h`; });
-                const dataRadDetalhado = radRawData.map(d => d.radiacao_solar || 0);
+                // 3. Garante que os dados detalhados estejam ordenados cronologicamente
+                const radRawSorted = radRawData.sort((a,b) => a.datetime - b.datetime);
+                const labelsDetalhado = radRawSorted.map(d => { const dt = d.datetime; return `${dt.getUTCDate()}/${dt.getUTCMonth()+1} ${dt.getUTCHours()}h`; });
+                const dataRadDetalhado = radRawSorted.map(d => d.radiacao_solar || 0);
 
                 const radTotalPeriodo = dataRadDia.reduce((a,b)=>a+b,0);
                 const radMediaDiaria = dataRadDia.length ? radTotalPeriodo / dataRadDia.length : 0;
@@ -550,6 +554,8 @@ class RelatorioClimaCompleto:
 
                 charts.radPorDia.data.labels = labelsDia; charts.radPorDia.data.datasets[0].data = dataRadDia; charts.radPorDia.update();
                 charts.radPorHora.data.datasets[0].data = dataRadHoraMedia; charts.radPorHora.update();
+                
+                // Atualiza o gráfico detalhado com os dados estritamente filtrados e ordenados
                 charts.radDetalhado.data.labels = labelsDetalhado; charts.radDetalhado.data.datasets[0].data = dataRadDetalhado; charts.radDetalhado.update();
             }
             function renderCalendar(date) { const year = date.getUTCFullYear(); const month = date.getUTCMonth(); document.getElementById('month-year-header').innerText = `${MESES_PT_BR[month]} de ${year}`; const grid = document.getElementById('calendar-grid'); grid.innerHTML = ''; const firstDay = new Date(Date.UTC(year, month, 1)).getUTCDay(); const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate(); const today = new Date(); const todayStr = today.toISOString().split('T')[0]; const selectedStation = document.getElementById('station-filter').value; for (let i = 0; i < firstDay; i++) { grid.innerHTML += '<div class="calendar-day empty"></div>'; } for (let i = 1; i <= daysInMonth; i++) { const dayStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`; const dayData = currentDailyAggregated.find(d => d.data_str === dayStr); const dayEl = document.createElement('div'); dayEl.className = 'calendar-day'; if (dayStr === todayStr) dayEl.classList.add('today'); if (dayStr === selectedCalendarDay) dayEl.classList.add('selected'); let content = `<div class="day-number">${i}</div>`; if (dayData && dayData.precipitacao_mm > 0) { if (selectedStation === 'todas') { content += '<div class="day-rainfall-details">'; for (const stationName in dayData.precip_by_station) { const rain = dayData.precip_by_station[stationName]; content += `<div class="station-rain"><span>${stationName.substring(0,8)}</span> ${fNum(rain)} mm</div>`; } content += '</div>'; } else { content += `<div class="day-rainfall">${fNum(dayData.precipitacao_mm)} mm</div>`; } } dayEl.innerHTML = content; dayEl.addEventListener('click', () => showDailyDetails(dayStr, currentFilteredData)); grid.appendChild(dayEl); } }
@@ -714,4 +720,3 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         exit(1)
-
