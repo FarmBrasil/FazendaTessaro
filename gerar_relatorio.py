@@ -30,7 +30,7 @@ ESTACOES_DO_CLIENTE = [
     {'name': 'Santa Ernestina T13', 'id_estacao': '59504', 'latitude': -12.3868, 'longitude': -55.7189},
     {'name': 'Santa Ernestina T11', 'id_estacao': '65610', 'latitude': -12.4196, 'longitude': -55.7304},
 ]
-ANOS_DE_HISTORICO = 2
+ANOS_DE_HISTORICO = 1
 # ============================================================================
 
 class RelatorioClimaCompleto:
@@ -564,3 +564,4 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         exit(1)
+
