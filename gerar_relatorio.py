@@ -526,13 +526,13 @@ class RelatorioClimaCompleto:
                 const hourlyGFDI = Array(24).fill(0).map(()=>[]); data.forEach(d => { if(d.gfdi !== null && !isNaN(d.gfdi)) hourlyGFDI[d.datetime.getUTCHours()].push(d.gfdi); }); charts.gfdiHorario.data.labels = hourLabels; charts.gfdiHorario.data.datasets = [{ label: 'GFDI Médio', data: hourlyGFDI.map(h=>h.length > 0 ? h.reduce((a,b)=>a+b,0)/h.length : NaN), borderColor:'#ffc107', backgroundColor: 'rgba(255, 193, 7, 0.2)', fill: true, tension: 0.4 }]; charts.gfdiHorario.update();
                 
                 // --- ATUALIZAÇÃO RADIAÇÃO (COM FILTRO OUT/2025) ---
-                // 1. Filtra os dados agregados por dia para mostrar apenas >= 01/10/2025
-                const radDailyData = dailyAggregated.filter(d => d.data_str >= '2025-10-01');
+                // 1. Filtra os dados agregados por dia para mostrar apenas >= 05/11/2025
+                const radDailyData = dailyAggregated.filter(d => d.data_str >= '2025-11-05');
                 const labelsDia = radDailyData.map(d => d.data_str);
                 const dataRadDia = radDailyData.map(d => d.radiacao_solar_total);
                 
-                // 2. Filtra os dados brutos (horários) para mostrar médias apenas >= 01/10/2025
-                const radRawData = data.filter(d => d.datetime >= new Date('2025-10-01'));
+                // 2. Filtra os dados brutos (horários) para mostrar médias apenas >= 05/11/2025
+                const radRawData = data.filter(d => d.datetime >= new Date('2025-11-05'));
                 const radPorHora = Array(24).fill(0).map(() => []);
                 radRawData.forEach(d => { if (d.radiacao_solar !== null) radPorHora[d.datetime.getUTCHours()].push(d.radiacao_solar); });
                 const dataRadHoraMedia = radPorHora.map(vals => vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0);
@@ -714,3 +714,4 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         exit(1)
+
