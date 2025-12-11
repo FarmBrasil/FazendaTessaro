@@ -35,10 +35,6 @@ ANOS_DE_HISTORICO = 2
 # ============================================================================
 
 class RelatorioClimaCompleto:
-    """
-    Classe para gerar um relatório HTML, lendo credenciais do ambiente
-    e focada em um único cliente pré-definido.
-    """
     def __init__(self, grower_id: int, grower_name: str, stations: list, session: requests.Session):
         self.session = session 
         self.weather_url_base = "https://admin.farmcommand.com/weather/{}/historical-summary-hourly/"
@@ -233,6 +229,11 @@ class RelatorioClimaCompleto:
         
         df = pd.DataFrame(records)
         df['datetime'] = pd.to_datetime(df['datetime'], errors='coerce', utc=True)
+        
+        # --- CORREÇÃO DE FUSO HORÁRIO (MATO GROSSO UTC-4) ---
+        # Subtrai 4 horas do horário UTC para alinhar com o horário local real
+        df['datetime'] = df['datetime'] - pd.Timedelta(hours=4)
+        
         df = df.dropna(subset=['datetime']).sort_values('datetime')
         
         for col in df.columns:
