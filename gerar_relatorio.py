@@ -118,8 +118,17 @@ class RelatorioClimaCompleto:
             url = self.weather_url_base.format(station_id)
             params = {'startDate': api_start, 'endDate': api_end, 'format': 'json'}
             json_data = self._make_request(url, params=params)
-            if json_data and 'results' in json_data:
-                all_results.extend(json_data['results'])
+            
+            # --- CORREÇÃO AQUI: Verifica se é lista (novo formato) ou dicionário (formato antigo) ---
+            if json_data:
+                if isinstance(json_data, list):
+                     all_results.extend(json_data)
+                elif isinstance(json_data, dict) and 'results' in json_data:
+                    all_results.extend(json_data['results'])
+                else:
+                    print(f"Aviso: Formato de dados inesperado para estação {station_id}")
+            # --------------------------------------------------------------------------------------
+
             time.sleep(0.2)
             current_dt = chunk_end_dt + timedelta(days=1)
         print(f"--- Busca concluída. {len(all_results)} registros horários. ---")
@@ -202,7 +211,6 @@ class RelatorioClimaCompleto:
             'vento_direcao_graus': get_wind_direction(r), 
             'delta_t': r.get('avgDeltaT'), 
             'gfdi': r.get('avgGFDI'),
-            # --- NOVA CAPTURA: RADIAÇÃO SOLAR ---
             'radiacao_mj': r.get('sumSolarRadiation')
         } for r in json_list]
         
@@ -217,7 +225,7 @@ class RelatorioClimaCompleto:
         df.loc[(df['temp_media_c'] > 50) | (df['temp_media_c'] == 0.0), ['temp_media_c', 'delta_t']] = np.nan
         df.loc[(df['umidade_media_perc'] == 0), ['umidade_media_perc']] = np.nan
         
-        # Limpeza Radiação (apenas garantir que não é negativa, se houver erro da API)
+        # Limpeza Radiação
         if 'radiacao_mj' in df.columns:
              df.loc[df['radiacao_mj'] < 0, 'radiacao_mj'] = 0
 
@@ -402,7 +410,15 @@ class RelatorioClimaCompleto:
             }
 
             function atualizarTudo() { 
-                const startDate = new Date(document.getElementById('start-date').value + "T00:00:00Z"); const endDate = new Date(document.getElementById('end-date').value + "T23:59:59Z"); const selectedStation = document.getElementById('station-filter').value; 
+                let startDate, endDate;
+                // Proteção contra datas vazias ou inválidas
+                try { startDate = new Date(document.getElementById('start-date').value + "T00:00:00Z"); } catch(e) { startDate = new Date(); }
+                try { endDate = new Date(document.getElementById('end-date').value + "T23:59:59Z"); } catch(e) { endDate = new Date(); }
+                
+                if (isNaN(startDate.getTime())) startDate = new Date();
+                if (isNaN(endDate.getTime())) endDate = new Date();
+
+                const selectedStation = document.getElementById('station-filter').value; 
                 currentFilteredData = allData.filter(d => { const stationMatch = (selectedStation === 'todas' || d.nome_estacao === selectedStation); const dateMatch = d.datetime >= startDate && d.datetime <= endDate; return stationMatch && dateMatch; }); 
                 const dailyData = {}; 
                 currentFilteredData.forEach(d => { 
@@ -564,4 +580,3 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         exit(1)
-
