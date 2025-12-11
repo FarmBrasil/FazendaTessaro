@@ -327,8 +327,8 @@ class RelatorioClimaCompleto:
                 <div class="kpi-card"><h4>Pico Horário Máximo</h4><div class="value" id="kpi-rad-max">0,0</div><span style="color:#8892b0;">MJ/m²</span></div>
             </div>
             <div class="charts-grid">
-                <div class="chart-card" style="grid-column: span 2;"><h3>Radiação Solar por Dia (MJ/m²)</h3><div class="chart-canvas-wrapper"><canvas id="chartRadPorDia"></canvas></div></div>
-                <div class="chart-card"><h3>Média de Radiação por Hora (Perfil do Dia)</h3><div class="chart-canvas-wrapper"><canvas id="chartRadPorHora"></canvas></div></div>
+                <div class="chart-card" style="grid-column: 1 / -1;"><h3>Radiação Solar por Dia (MJ/m²)</h3><div class="chart-canvas-wrapper"><canvas id="chartRadPorDia"></canvas></div></div>
+                <div class="chart-card" style="grid-column: span 2;"><h3>Média de Radiação por Hora (Perfil do Dia)</h3><div class="chart-canvas-wrapper"><canvas id="chartRadPorHora"></canvas></div></div>
                 <div class="chart-card" style="grid-column: 1 / -1;"><h3>Radiação Solar - Detalhado (Dia e Hora)</h3><div class="chart-canvas-wrapper"><canvas id="chartRadDetalhado"></canvas></div></div>
             </div>
         </div>
@@ -525,16 +525,20 @@ class RelatorioClimaCompleto:
                 const hourlyDeltaT = Array(24).fill(0).map(()=>[]); const hourlyWind = Array(24).fill(0).map(()=>[]); data.forEach(d => { const hour = d.datetime.getUTCHours(); if(d.delta_t !== null && !isNaN(d.delta_t)) hourlyDeltaT[hour].push(d.delta_t); if(d.vento_medio_kph !== null && !isNaN(d.vento_medio_kph)) hourlyWind[hour].push(d.vento_medio_kph); }); const hourLabels = Array(24).fill(0).map((_,i)=>`${String(i).padStart(2,'0')}:00`); charts.ventoDeltaTHorario.data.labels = hourLabels; charts.ventoDeltaTHorario.data.datasets = [ { label: 'Delta T Médio (°C)', data: hourlyDeltaT.map(h=>h.length > 0 ? h.reduce((a,b)=>a+b,0)/h.length : NaN), borderColor: '#ff6384', backgroundColor: 'rgba(255, 99, 132, 0.2)', yAxisID: 'y_deltat', fill: true, tension: 0.4 }, { label: 'Vento Médio (km/h)', data: hourlyWind.map(h=>h.length > 0 ? h.reduce((a,b)=>a+b,0)/h.length : NaN), borderColor: '#36a2eb', backgroundColor: 'rgba(54, 162, 235, 0.2)', yAxisID: 'y_vento', fill: true, tension: 0.4 } ]; charts.ventoDeltaTHorario.update();
                 const hourlyGFDI = Array(24).fill(0).map(()=>[]); data.forEach(d => { if(d.gfdi !== null && !isNaN(d.gfdi)) hourlyGFDI[d.datetime.getUTCHours()].push(d.gfdi); }); charts.gfdiHorario.data.labels = hourLabels; charts.gfdiHorario.data.datasets = [{ label: 'GFDI Médio', data: hourlyGFDI.map(h=>h.length > 0 ? h.reduce((a,b)=>a+b,0)/h.length : NaN), borderColor:'#ffc107', backgroundColor: 'rgba(255, 193, 7, 0.2)', fill: true, tension: 0.4 }]; charts.gfdiHorario.update();
                 
-                // --- ATUALIZAÇÃO RADIAÇÃO ---
-                const labelsDia = dailyAggregated.map(d => d.data_str);
-                const dataRadDia = dailyAggregated.map(d => d.radiacao_solar_total);
+                // --- ATUALIZAÇÃO RADIAÇÃO (COM FILTRO OUT/2025) ---
+                // 1. Filtra os dados agregados por dia para mostrar apenas >= 01/10/2025
+                const radDailyData = dailyAggregated.filter(d => d.data_str >= '2025-10-01');
+                const labelsDia = radDailyData.map(d => d.data_str);
+                const dataRadDia = radDailyData.map(d => d.radiacao_solar_total);
                 
+                // 2. Filtra os dados brutos (horários) para mostrar médias apenas >= 01/10/2025
+                const radRawData = data.filter(d => d.datetime >= new Date('2025-10-01'));
                 const radPorHora = Array(24).fill(0).map(() => []);
-                data.forEach(d => { if (d.radiacao_solar !== null) radPorHora[d.datetime.getUTCHours()].push(d.radiacao_solar); });
+                radRawData.forEach(d => { if (d.radiacao_solar !== null) radPorHora[d.datetime.getUTCHours()].push(d.radiacao_solar); });
                 const dataRadHoraMedia = radPorHora.map(vals => vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0);
                 
-                const labelsDetalhado = data.map(d => { const dt = d.datetime; return `${dt.getUTCDate()}/${dt.getUTCMonth()+1} ${dt.getUTCHours()}h`; });
-                const dataRadDetalhado = data.map(d => d.radiacao_solar || 0);
+                const labelsDetalhado = radRawData.map(d => { const dt = d.datetime; return `${dt.getUTCDate()}/${dt.getUTCMonth()+1} ${dt.getUTCHours()}h`; });
+                const dataRadDetalhado = radRawData.map(d => d.radiacao_solar || 0);
 
                 const radTotalPeriodo = dataRadDia.reduce((a,b)=>a+b,0);
                 const radMediaDiaria = dataRadDia.length ? radTotalPeriodo / dataRadDia.length : 0;
