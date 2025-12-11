@@ -7,16 +7,15 @@ from datetime import datetime, timedelta
 import os
 import sys
 
-# --- ADICIONADO: Importa a função de login ---
+# --- Importa a função de login ---
 try:
     from farm_auth import get_authenticated_session
 except ImportError:
     print("❌ ERRO CRÍTICO: Não foi possível encontrar o arquivo 'farm_auth.py'.")
-    print("    Certifique-se de que 'farm_auth.py' está na mesma pasta que este script.")
     sys.exit(1)
 
 # ============================================================================
-# --- CONFIGURAÇÃO DO CLIENTE ---
+# --- CONFIGURAÇÃO ---
 # ============================================================================
 CLIENTE_ID = 92088 
 CLIENTE_NOME = "Clayton Sheiki Tessaro" 
@@ -30,7 +29,7 @@ ESTACOES_DO_CLIENTE = [
     {'name': 'Santa Ernestina T13', 'id_estacao': '59504', 'latitude': -12.3868, 'longitude': -55.7189},
     {'name': 'Santa Ernestina T11', 'id_estacao': '65610', 'latitude': -12.4196, 'longitude': -55.7304},
 ]
-ANOS_DE_HISTORICO = 1
+ANOS_DE_HISTORICO = 2
 # ============================================================================
 
 class RelatorioClimaCompleto:
@@ -41,10 +40,16 @@ class RelatorioClimaCompleto:
         self.field_border_url = "https://admin.farmcommand.com/fieldborder/?assetID={}&format=json"
         self.forecast_url = "https://admin.farmcommand.com/weather/wsi/daily-forecast/"
         self.hourly_forecast_url = "https://admin.farmcommand.com/weather/wsi/hourly-forecast/"
-
         self.stations_info = stations
         self.grower_name_cache = {grower_id: grower_name}
         self.target_grower_id = grower_id
+
+    def _get_val(self, record, keys_list):
+        """Tenta encontrar o valor usando uma lista de possíveis chaves."""
+        for key in keys_list:
+            if key in record and record[key] is not None:
+                return record[key]
+        return None
 
     def _traduzir_dia_semana(self, dow: str) -> str:
         dias = {"Monday": "Seg", "Tuesday": "Ter", "Wednesday": "Qua", "Thursday": "Qui", "Friday": "Sex", "Saturday": "Sáb", "Sunday": "Dom"}
@@ -68,7 +73,8 @@ class RelatorioClimaCompleto:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            print(f" -> Erro de requisição para {url}: {e}.")
+            # Silenciar erros 404/500 momentâneos para não poluir o terminal, apenas logar
+            # print(f" -> Erro request: {e}")
             if isinstance(e, requests.exceptions.HTTPError) and e.response.status_code in [401, 403]:
                 print("Sessão expirada. Tentando re-autenticar...")
                 self.session = get_authenticated_session()
@@ -77,7 +83,7 @@ class RelatorioClimaCompleto:
             return None
 
     def get_field_borders_for_grower(self, grower_id: int) -> list:
-        print(f"\nBuscando talhões para o cliente ID: {grower_id}...")
+        print(f"Buscando talhões (ID: {grower_id})...")
         all_assets = self._make_request(self.assets_url)
         if not all_assets: return []
         farm_ids = [item["id"] for item in all_assets if item.get("parent") == grower_id and item.get("category") == "Farm"]
@@ -99,9 +105,8 @@ class RelatorioClimaCompleto:
                 coords_leaflet = [[c[1], c[0]] for c in coords_raw]
                 if coords_leaflet:
                     all_borders.append({'field_id': field_id, 'field_name': field_info['label'] if field_info else f"Talhão {field_id}", 'centroid': [border_data[0]["centroid_lat"], border_data[0]["centroid_lon"]], 'geometry': {'type': 'Polygon', 'coordinates': [coords_leaflet]}})
-            except (json.JSONDecodeError, KeyError, IndexError) as e:
+            except Exception:
                 pass
-        print(f"Encontrados {len(all_borders)} talhões.")
         return all_borders
 
     def buscar_dados_climaticos(self, station_id: str, start_date: str, end_date: str) -> list:
@@ -110,7 +115,7 @@ class RelatorioClimaCompleto:
         end_dt = datetime.strptime(end_date, '%Y-%m-%d')
         current_dt = start_dt
 
-        print(f"--- Iniciando busca otimizada para Estação: {station_id} ---")
+        print(f"   -> Buscando dados estação {station_id}...", end="\r")
         while current_dt <= end_dt:
             chunk_end_dt = min(current_dt + timedelta(days=60), end_dt)
             api_start = current_dt.strftime('%Y-%m-%dT00:00:00')
@@ -119,26 +124,99 @@ class RelatorioClimaCompleto:
             params = {'startDate': api_start, 'endDate': api_end, 'format': 'json'}
             json_data = self._make_request(url, params=params)
             
-            # --- CORREÇÃO AQUI: Verifica se é lista (novo formato) ou dicionário (formato antigo) ---
             if json_data:
+                # Tratamento robusto para Lista ou Dicionário
                 if isinstance(json_data, list):
                      all_results.extend(json_data)
                 elif isinstance(json_data, dict) and 'results' in json_data:
                     all_results.extend(json_data['results'])
-                else:
-                    print(f"Aviso: Formato de dados inesperado para estação {station_id}")
-            # --------------------------------------------------------------------------------------
-
-            time.sleep(0.2)
+            
             current_dt = chunk_end_dt + timedelta(days=1)
-        print(f"--- Busca concluída. {len(all_results)} registros horários. ---")
+        
+        print(f"   -> Estação {station_id}: {len(all_results)} registros encontrados.")
         return all_results
+
+    def processar_para_dataframe(self, json_list: list, station_id: str, station_name: str) -> pd.DataFrame:
+        if not json_list: return pd.DataFrame()
+
+        # DEBUG: Mostra chaves do primeiro registro para entender o formato
+        # print(f"DEBUG CHAVES: {json_list[0].keys()}")
+
+        processed_records = []
+        for r in json_list:
+            # Tenta pegar Data
+            dt_val = self._get_val(r, ['local_time', 'date', 'datetime'])
+            if not dt_val: continue
+
+            # Tenta pegar Temperatura Média
+            temp_med = self._get_val(r, ['avg_temp_c', 'avgTemp', 'temp_avg'])
+            
+            # Tenta pegar Umidade
+            hum_med = self._get_val(r, ['avg_relative_humidity', 'avgRelativeHumidity', 'humidity_avg'])
+
+            # Tenta pegar Precipitação
+            precip = self._get_val(r, ['total_precip_mm', 'sumPrecipitation', 'precip_total'])
+            if precip is None: precip = 0.0
+
+            # Vento
+            wind = self._get_val(r, ['avg_windspeed_kph', 'avgWindSpeed', 'wind_speed_avg'])
+            
+            # Rajada
+            gust = self._get_val(r, ['maxWindGust', 'wind_gust_max'])
+            if gust is None:
+                # Tenta estrutura aninhada antiga
+                gust_dict = r.get('wind_gust_kph', {})
+                if isinstance(gust_dict, dict): gust = gust_dict.get('max')
+            
+            # Direção Vento
+            wdir = self._get_val(r, ['diravgWindDirection', 'wind_direction_avg'])
+            if wdir is None:
+                 wdir_dict = r.get('wind_direction_deg', {})
+                 if isinstance(wdir_dict, dict): wdir = wdir_dict.get('avg')
+                 elif isinstance(wdir_dict, (int, float)): wdir = wdir_dict
+
+            processed_records.append({
+                'datetime': dt_val,
+                'precipitacao_mm': precip,
+                'temp_media_c': temp_med,
+                'temp_min_c': self._get_val(r, ['min_temp_c', 'minTemp']),
+                'temp_max_c': self._get_val(r, ['max_temp_c', 'maxTemp']),
+                'umidade_media_perc': hum_med,
+                'umidade_min_perc': self._get_val(r, ['min_relative_humidity', 'minRelativeHumidity']),
+                'umidade_max_perc': self._get_val(r, ['max_relative_humidity', 'maxRelativeHumidity']),
+                'vento_medio_kph': wind,
+                'rajada_max_kph': gust,
+                'vento_direcao_graus': wdir,
+                'delta_t': self._get_val(r, ['avgDeltaT', 'delta_t_avg']),
+                'gfdi': self._get_val(r, ['avgGFDI', 'gfdi_avg']),
+                'radiacao_mj': self._get_val(r, ['sumSolarRadiation', 'solar_radiation_sum'])
+            })
+        
+        df = pd.DataFrame(processed_records)
+        df['datetime'] = pd.to_datetime(df['datetime'], errors='coerce', utc=True)
+        df = df.dropna(subset=['datetime']).sort_values('datetime')
+        
+        for col in df.columns:
+            if col != 'datetime': df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+        # Limpeza
+        df.loc[(df['temp_media_c'] > 55) | (df['temp_media_c'] == 0.0), ['temp_media_c', 'delta_t']] = np.nan
+        df.loc[(df['umidade_media_perc'] <= 0), ['umidade_media_perc']] = np.nan
+        if 'radiacao_mj' in df.columns:
+             df.loc[df['radiacao_mj'] < 0, 'radiacao_mj'] = 0
+
+        # Importante: Só remove se REALMENTE não tiver dados básicos
+        df.dropna(subset=['temp_media_c', 'umidade_media_perc'], how='all', inplace=True)
+        
+        df['nome_estacao'] = station_name
+        df['station_id'] = station_id
+        return df
 
     def buscar_previsao_clima(self, lat: float, lon: float) -> list:
         data = {"lat": lat, "lon": lon, "unit": "m"}
         try:
             response = self.session.post(self.forecast_url, json=data, timeout=60)
-            response.raise_for_status()
+            if response.status_code != 200: return []
             api_data = response.json()
             previsoes_processadas = []
             for forecast in api_data.get("forecasts", [])[:10]:
@@ -156,15 +234,14 @@ class RelatorioClimaCompleto:
                     "vento_dir": dia_dados.get("wdir_cardinal", "N/D"),
                 })
             return previsoes_processadas
-        except Exception as e:
-            print(f" -> Falha previsão diária: {e}")
+        except Exception:
             return []
 
     def buscar_previsao_horaria(self, lat: float, lon: float) -> list:
         data = {"lat": lat, "lon": lon, "unit": "m"}
         try:
             response = self.session.post(self.hourly_forecast_url, json=data, timeout=60)
-            response.raise_for_status()
+            if response.status_code != 200: return []
             api_data = response.json()
             previsoes_processadas = []
             for hour_data in api_data.get("forecasts", [])[:48]:
@@ -178,64 +255,15 @@ class RelatorioClimaCompleto:
                     "qpf": hour_data.get("qpf", 0.0)
                 })
             return previsoes_processadas
-        except Exception as e:
-            print(f" -> Falha previsão horária: {e}")
+        except Exception:
             return []
 
     def _is_in_mato_grosso(self, lat: float, lon: float) -> bool:
-        if lat is None or lon is None: return False
-        lat_min, lat_max = -18.2, -7.5
-        lon_min, lon_max = -61.8, -50.0
-        return (lat_min <= lat <= lat_max) and (lon_min <= lon <= lon_max)
-
-    def processar_para_dataframe(self, json_list: list, station_id: str, station_name: str) -> pd.DataFrame:
-        if not json_list: return pd.DataFrame()
-
-        def get_wind_direction(record):
-            wind_dir_data = record.get('wind_direction_deg')
-            if isinstance(wind_dir_data, dict): return wind_dir_data.get('avg')
-            elif isinstance(wind_dir_data, (int, float)): return wind_dir_data
-            return None
-
-        records = [{
-            'datetime': r.get('local_time'), 
-            'precipitacao_mm': r.get('total_precip_mm'),
-            'temp_media_c': r.get('avg_temp_c'), 
-            'temp_min_c': r.get('min_temp_c'),
-            'temp_max_c': r.get('max_temp_c'), 
-            'umidade_media_perc': r.get('avg_relative_humidity'),
-            'umidade_min_perc': r.get('min_relative_humidity'), 
-            'umidade_max_perc': r.get('max_relative_humidity'),
-            'vento_medio_kph': r.get('avg_windspeed_kph'), 
-            'rajada_max_kph': r.get('wind_gust_kph', {}).get('max'),
-            'vento_direcao_graus': get_wind_direction(r), 
-            'delta_t': r.get('avgDeltaT'), 
-            'gfdi': r.get('avgGFDI'),
-            'radiacao_mj': r.get('sumSolarRadiation')
-        } for r in json_list]
-        
-        df = pd.DataFrame(records)
-        df['datetime'] = pd.to_datetime(df['datetime'], errors='coerce', utc=True)
-        df = df.dropna(subset=['datetime']).sort_values('datetime')
-        
-        for col in df.columns:
-            if col != 'datetime': df[col] = pd.to_numeric(df[col], errors='coerce')
-        
-        # Limpeza básica
-        df.loc[(df['temp_media_c'] > 50) | (df['temp_media_c'] == 0.0), ['temp_media_c', 'delta_t']] = np.nan
-        df.loc[(df['umidade_media_perc'] == 0), ['umidade_media_perc']] = np.nan
-        
-        # Limpeza Radiação
-        if 'radiacao_mj' in df.columns:
-             df.loc[df['radiacao_mj'] < 0, 'radiacao_mj'] = 0
-
-        df.dropna(subset=['temp_media_c', 'umidade_media_perc'], inplace=True)
-        df['nome_estacao'] = station_name
-        df['station_id'] = station_id
-        return df
+        return False # Desabilitado para evitar filtros regionais indesejados
 
     def gerar_html_final(self, df: pd.DataFrame, geodata: dict, all_forecasts: dict):
         print("\nGerando relatório HTML...")
+        # Garante datas em ISO para o JS não se perder
         json_data = df.to_json(orient='records', date_format='iso')
         json_geodata = json.dumps(geodata)
         json_all_forecasts = json.dumps(all_forecasts)
@@ -522,11 +550,9 @@ class RelatorioClimaCompleto:
                 station_name = station.get('name', f"ID {station['id_estacao']}")
                 lat, lon = station.get('latitude'), station.get('longitude')
                 if lat is not None and lon is not None:
-                    print(f"\n--- Buscando previsão do tempo para: '{station_name}' ---")
+                    # print(f"\n--- Buscando previsão do tempo para: '{station_name}' ---")
                     all_forecasts['daily'][station_name] = self.buscar_previsao_clima(lat, lon)
                     all_forecasts['hourly'][station_name] = self.buscar_previsao_horaria(lat, lon)
-                else:
-                    print(f"AVISO: Estação '{station_name}' não possui coordenadas válidas.")
         
         end_date_dt = datetime.now() - timedelta(days=1)
         start_date_dt = end_date_dt - timedelta(days=365 * ANOS_DE_HISTORICO)
@@ -544,7 +570,7 @@ class RelatorioClimaCompleto:
                 all_dfs.append(df_station)
 
         if not all_dfs:
-            print("\nAVISO: Nenhum dado climático foi encontrado.")
+            print("\nAVISO: Nenhum dado climático válido foi encontrado ou processado.")
             df_completo = pd.DataFrame()
         else:
             df_completo = pd.concat(all_dfs, ignore_index=True)
