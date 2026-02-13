@@ -1,80 +1,59 @@
 # Nome do arquivo: farm_auth.py
-# (Versão segura para GitHub)
-
 import requests
 import os
 import sys
-from dotenv import load_dotenv # <-- Biblioteca para ler o arquivo .env
 
-# Carrega as variáveis do arquivo .env (se existir)
-# Isso permite rodar localmente sem expor a senha
-load_dotenv()
-
+# URL de login
 LOGIN_URL = "https://admin.farmcommand.com/login/"
 
 def get_authenticated_session() -> requests.Session | None:
-    """
-    Executa o login dinâmico no FarmCommand e retorna um 
-    objeto requests.Session autenticado.
-    
-    Ele prioriza Variáveis de Ambiente (GitHub Secrets) ou
-    lê de um arquivo .env (para rodar localmente).
-    """
-    
-    # --- 1. Lê as credenciais do ambiente ---
-    # (Elas vieram ou do .env local ou dos GitHub Secrets)
+    # Pega usuário e senha direto do "Cofre" do GitHub (Secrets)
     USUARIO = os.environ.get("FARM_USER") 
     SENHA = os.environ.get("FARM_PASS")
     
     if not USUARIO or not SENHA:
-        print("❌ ERRO DE AUTENTICAÇÃO: Credenciais não encontradas.")
-        print("   Certifique-se de que você criou um arquivo .env")
-        print("   ou configurou os GitHub Secrets (FARM_USER, FARM_PASS).")
+        print("❌ ERRO: Usuário ou Senha não encontrados nas Variáveis de Ambiente.")
         return None
 
-    print("\n--- [farm_auth] Iniciando autenticação ---")
+    print("\n--- [farm_auth] Tentando Login... ---")
     
     s = requests.Session()
     try:
-        # 2. Obter o CSRF Token inicial
+        # 1. Acessa a página para pegar o token de segurança
         login_page = s.get(LOGIN_URL)
         login_page.raise_for_status() 
         
         if 'csrftoken' not in s.cookies:
-            print("Erro: [farm_auth] 'csrftoken' não encontrado.")
+            print("Erro: Token de segurança não encontrado.")
             return None
-        csrftoken_inicial = s.cookies['csrftoken']
+        csrftoken = s.cookies['csrftoken']
 
-        # 3. Montar os dados do formulário de login
+        # 2. Manda usuário e senha
         login_data = {
             'username': USUARIO,
             'password': SENHA,
-            'csrfmiddlewaretoken': csrftoken_inicial
+            'csrfmiddlewaretoken': csrftoken
         }
-        login_headers = {'Referer': LOGIN_URL}
+        headers = {'Referer': LOGIN_URL}
 
-        # 4. Enviar o POST de login
-        r_login = s.post(LOGIN_URL, data=login_data, headers=login_headers)
+        r_login = s.post(LOGIN_URL, data=login_data, headers=headers)
         r_login.raise_for_status() 
 
-        # 5. Verificação de Login
+        # 3. Verifica se deu certo
         if 'login' in r_login.url:
-            print("ERRO: [farm_auth] Falha no login. Verifique as credenciais.")
+            print("❌ Falha no login. Verifique usuário e senha.")
             return None
         
-        print("--- [farm_auth] Autenticação bem-sucedida ---")
+        print("✅ Login realizado com sucesso!")
         
-        # 6. Adiciona o CSRF token aos headers padrão da sessão
+        # Configura a sessão para as próximas chamadas
         s.headers.update({
-            'X-CSRFToken': s.cookies['csrftoken'],
-            "accept": "application/json",
-            "Content-Type": "application/json",
-            "Referer": "https://admin.farmcommand.com/",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+            'X-CSRFToken': s.cookies.get('csrftoken'),
+            "Referer": "https://admin.farmcommand.com/"
         })
         
-        return s # Retorna a sessão autenticada
+        return s
 
-    except requests.exceptions.RequestException as e:
-        print(f"ERRO: [farm_auth] Erro HTTP na autenticação: {e}")
+    except Exception as e:
+        print(f"Erro no login: {e}")
         return None
