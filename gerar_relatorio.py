@@ -260,7 +260,7 @@ class RelatorioClimaCompleto:
 
     def gerar_html_final(self, df: pd.DataFrame, geodata: dict, all_forecasts: dict):
         print("\nGerando relatório HTML otimizado para Mobile...")
-        output_dir = "dist"
+        output_dir = "."
         os.makedirs(output_dir, exist_ok=True)
 
         # 1. OTIMIZAÇÃO E EXPORTAÇÃO DOS DADOS (JSON SEPARADO)
@@ -795,3 +795,4 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         exit(1)
+
