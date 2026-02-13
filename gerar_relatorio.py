@@ -260,12 +260,17 @@ class RelatorioClimaCompleto:
         return df
 
     def gerar_html_final(self, df: pd.DataFrame, geodata: dict, all_forecasts: dict):
+        print("\nGerando arquivos de dados externos...")
+        df.to_json("dados_climaticos.json", orient="records", date_format="iso")
+        with open("dados_geograficos.json", "w", encoding="utf-8") as f: json.dump(geodata, f)
+        with open("dados_previsoes.json", "w", encoding="utf-8") as f: json.dump(all_forecasts, f)
+
         print("\nGerando relatório HTML...")
         json_data = df.to_json(orient='records', date_format='iso')
         json_geodata = json.dumps(geodata)
         json_all_forecasts = json.dumps(all_forecasts)
 
-        html_template = """
+        html_template = f"""
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -296,7 +301,7 @@ class RelatorioClimaCompleto:
 </head>
 <body>
     <div class="container">
-        <h1>Relatório Climático - __GROWER_NAME__</h1>
+        <h1>Relatório Climático - {geodata["grower_name"]}</h1>
         <div class="header">
             <div><label for="start-date">Data Início:</label><input type="date" id="start-date"></div>
             <div><label for="end-date">Data Fim:</label><input type="date" id="end-date"></div>
@@ -363,9 +368,9 @@ class RelatorioClimaCompleto:
             </div>
         </div>
     </div>
-    <script id="dados-climaticos" type="application/json">__JSON_DATA__</script>
-    <script id="dados-geograficos" type="application/json">__GEODATA__</script>
-    <script id="dados-todas-previsoes" type="application/json">__JSON_ALL_FORECASTS__</script>
+    
+    
+    
     <script>
         const MESES_PT_BR = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]; const CARDINAL_DIRECTIONS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']; const SPRAY_COLORS = { Ideal: '#28a745', Atenção: '#ffc107', Evitar: '#dc3545', NoData: '#6c757d' }; let map, geoData, allData, allForecastData, charts = {}; let fieldLayers = {}, stationMarkers = {}, mapLegend; let calendarDate = new Date(); let currentFilteredData = []; let currentDailyAggregated = []; let selectedCalendarDay = null; let stationColors = {};
         const mapMetricsConfig = { chuva: { key: 'precipitacao_mm', agg: 'sum', label: 'Chuva Acumulada', unit: 'mm', colors: ['#f7fbff', '#deebf7', '#c6dbef', '#9ecae1', '#6baed6', '#4292c6', '#2171b5', '#08519c', '#08306b'] }, temp_media: { key: 'temp_media_c', agg: 'avg', label: 'Temperatura Média', unit: '°C', colors: ['#fff5f0', '#fee0d2', '#fcbba1', '#fc9272', '#fb6a4a', '#ef3b2c', '#cb181d', '#a50f15', '#67000d'] }, umidade_media: { key: 'umidade_media_perc', agg: 'avg', label: 'Umidade Média', unit: '%', colors: ['#f7fcf5', '#e5f5e0', '#c7e9c0', '#a1d99b', '#74c476', '#41ab5d', '#238b45', '#006d2c', '#00441b'] }, vento_medio: { key: 'vento_medio_kph', agg: 'avg', label: 'Vento Médio', unit: 'km/h', colors: ['#fcfbfd', '#efedf5', '#dadaeb', '#bcbddc', '#9e9ac8', '#807dba', '#6a51a3', '#54278f', '#3f007d'] }, rajada_max: { key: 'rajada_max_kph', agg: 'max', label: 'Rajada Máxima', unit: 'km/h', colors: ['#ffffe5', '#fff7bc', '#fee391', '#fec44f', '#fe9929', '#ec7014', '#cc4c02', '#993404', '#662506'] } };
@@ -456,9 +461,27 @@ class RelatorioClimaCompleto:
 
         document.addEventListener('DOMContentLoaded', function() {
             Chart.register(ChartDataLabels); Chart.defaults.plugins.datalabels.display = false; Chart.defaults.color = '#a8b2d1'; Chart.defaults.borderColor = 'rgba(136, 146, 176, 0.2)';
-            allData = JSON.parse(document.getElementById('dados-climaticos').textContent).map(d => { d.datetime = new Date(d.datetime); return d; });
-            geoData = JSON.parse(document.getElementById('dados-geograficos').textContent);
-            allForecastData = JSON.parse(document.getElementById('dados-todas-previsoes').textContent);
+            
+            async function carregarEIniciar() {
+                try {
+                    const [resClima, resGeo, resPrev] = await Promise.all([
+                        fetch('dados_climaticos.json'),
+                        fetch('dados_geograficos.json'),
+                        fetch('dados_previsoes.json')
+                    ]);
+                    allData = (await resClima.json()).map(d => { d.datetime = new Date(d.datetime); return d; });
+                    geoData = await resGeo.json();
+                    allForecastData = await resPrev.json();
+                    iniciarDashboard();
+                } catch (e) {
+                    console.error('Erro ao carregar dados:', e);
+                    document.querySelector('.container').innerHTML = '<h1>Erro ao carregar os dados do relatório.</h1>';
+                }
+            }
+            carregarEIniciar();
+        
+            
+            
 
             function iniciarDashboard() { 
                 if (allData.length === 0 && (!geoData || !geoData.fields || geoData.fields.length === 0)) { document.querySelector('.container').innerHTML = '<h1>Nenhum dado encontrado para gerar o relatório.</h1>'; return; }; 
