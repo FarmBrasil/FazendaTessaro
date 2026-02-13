@@ -231,6 +231,7 @@ class RelatorioClimaCompleto:
         df['datetime'] = pd.to_datetime(df['datetime'], errors='coerce', utc=True)
         
         # --- CORREÇÃO DE FUSO HORÁRIO (MATO GROSSO UTC-4) ---
+        # Subtrai 4 horas do horário UTC para alinhar com o horário local real
         df['datetime'] = df['datetime'] - pd.Timedelta(hours=4)
         
         df = df.dropna(subset=['datetime']).sort_values('datetime')
@@ -259,69 +260,23 @@ class RelatorioClimaCompleto:
         return df
 
     def gerar_html_final(self, df: pd.DataFrame, geodata: dict, all_forecasts: dict):
-        print("\nGerando relatório HTML otimizado para Mobile...")
-        output_dir = "dist"
-        os.makedirs(output_dir, exist_ok=True)
-
-        # 1. OTIMIZAÇÃO E EXPORTAÇÃO DOS DADOS (JSON SEPARADO)
-        # Arredondar para reduzir tamanho do arquivo
-        df_optimized = df.copy()
-        float_cols = df_optimized.select_dtypes(include=['float']).columns
-        df_optimized[float_cols] = df_optimized[float_cols].round(1)
-        
-        # Salva o arquivo de dados grande separadamente
-        json_filename = "dados_climaticos.json"
-        json_path = os.path.join(output_dir, json_filename)
-        print(f"Salvando dados históricos em: {json_path}")
-        df_optimized.to_json(json_path, orient='records', date_format='iso')
-
-        # Os dados menores continuam no HTML para renderização inicial rápida
+        print("\nGerando relatório HTML...")
+        json_data = df.to_json(orient='records', date_format='iso')
         json_geodata = json.dumps(geodata)
         json_all_forecasts = json.dumps(all_forecasts)
 
-        # 2. HTML COM FETCH API (CARREGAMENTO ASSÍNCRONO)
         html_template = """
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Relatório Climático Completo</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background-color: #0a192f; color: #e6f1ff; } 
-        .container { padding: 20px; display: none; } /* Inicialmente oculto */
-        
-        /* Loading Overlay */
-        .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0a192f; z-index: 9999; display: flex; justify-content: center; align-items: center; flex-direction: column;}
-        .loader { border: 5px solid #112240; border-top: 5px solid #64ffda; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
-        h1, h2, h3, h4 { color: #ccd6f6; } 
-        .tabs { display: flex; border-bottom: 2px solid #1a3d6e; margin-bottom: 20px; flex-wrap: wrap;} 
-        .tab-button { padding: 10px 20px; cursor: pointer; background-color: transparent; border: none; color: #8892b0; font-size: 16px; } 
-        .tab-button.active { color: #64ffda; border-bottom: 2px solid #64ffda; font-weight: bold; } 
-        .tab-content { display: none; } 
-        .tab-content.active { display: block; } 
-        .header, .map-header, .kpi-grid, .charts-grid { margin-bottom: 25px; } 
-        .header, .map-header { background-color: #112240; padding: 15px; border-radius: 8px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap; border: 1px solid #1a3d6e;} 
-        .header label, .map-header label { font-weight: bold; margin-right: 5px; color: #8892b0; } 
-        .header input, .header select, .map-header select { background-color: #0a192f; border: 1px solid #1a3d6e; color: #e6f1ff; padding: 8px; border-radius: 5px; } 
-        .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; } 
-        .kpi-card { background-color: #112240; padding: 20px; border-radius: 8px; text-align: center; border: 1px solid #1a3d6e; } 
-        .kpi-card h4 { margin: 0 0 10px 0; color: #8892b0; font-size: 1em; text-transform: uppercase; } 
-        .kpi-card .value { font-size: 2.5em; font-weight: bold; color: #64ffda; } 
-        .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; } 
-        .chart-card { background-color: #112240; padding: 20px; border-radius: 8px; border: 1px solid #1a3d6e; } 
-        .chart-card h3, .chart-card h4 { text-align: center; margin-top: 0; color: #ccd6f6; } 
-        .chart-canvas-wrapper { position: relative; height: 400px; } 
-        #map-container { height: 65vh; width: 100%; border-radius: 8px; border: 1px solid #1a3d6e; } 
-        .leaflet-popup-content-wrapper { background-color: #112240; color: #e6f1ff; border-radius: 5px; } 
-        .leaflet-popup-tip { background-color: #112240; } 
-        .station-icon { font-size: 1.5em; text-shadow: 0 0 3px black; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; background-color: #0a192f; color: #e6f1ff; } .container { padding: 20px; } h1, h2, h3, h4 { color: #ccd6f6; } .tabs { display: flex; border-bottom: 2px solid #1a3d6e; margin-bottom: 20px; flex-wrap: wrap;} .tab-button { padding: 10px 20px; cursor: pointer; background-color: transparent; border: none; color: #8892b0; font-size: 16px; } .tab-button.active { color: #64ffda; border-bottom: 2px solid #64ffda; font-weight: bold; } .tab-content { display: none; } .tab-content.active { display: block; } .header, .map-header, .kpi-grid, .charts-grid { margin-bottom: 25px; } .header, .map-header { background-color: #112240; padding: 15px; border-radius: 8px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap; border: 1px solid #1a3d6e;} .header label, .map-header label { font-weight: bold; margin-right: 5px; color: #8892b0; } .header input, .header select, .map-header select { background-color: #0a192f; border: 1px solid #1a3d6e; color: #e6f1ff; padding: 8px; border-radius: 5px; } .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; } .kpi-card { background-color: #112240; padding: 20px; border-radius: 8px; text-align: center; border: 1px solid #1a3d6e; } .kpi-card h4 { margin: 0 0 10px 0; color: #8892b0; font-size: 1em; text-transform: uppercase; } .kpi-card .value { font-size: 2.5em; font-weight: bold; color: #64ffda; } .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; } .chart-card { background-color: #112240; padding: 20px; border-radius: 8px; border: 1px solid #1a3d6e; } .chart-card h3, .chart-card h4 { text-align: center; margin-top: 0; color: #ccd6f6; } .chart-canvas-wrapper { position: relative; height: 400px; } #map-container { height: 65vh; width: 100%; border-radius: 8px; border: 1px solid #1a3d6e; } .leaflet-popup-content-wrapper { background-color: #112240; color: #e6f1ff; border-radius: 5px; } .leaflet-popup-tip { background-color: #112240; } .station-icon { font-size: 1.5em; text-shadow: 0 0 3px black; }
         .calendar-container { max-width: 900px; margin: auto; background-color: #112240; padding: 20px; border-radius: 8px; border: 1px solid #1a3d6e;} .calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; } .calendar-header button { background: #64ffda; color: #0a192f; border: none; padding: 5px 15px; border-radius: 5px; cursor: pointer; font-weight: bold; } .calendar-weekdays { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-weight: bold; color: #8892b0; margin-bottom: 10px; } .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; } .calendar-day { background-color: #0a192f; min-height: 95px; padding: 5px; border-radius: 4px; font-size: 0.9em; border: 1px solid #1a3d6e; cursor: pointer; transition: background-color 0.2s; display: flex; flex-direction: column; } .calendar-day:hover { background-color: #1a3d6e; } .calendar-day.empty { background-color: transparent; border: none; cursor: default; } .calendar-day.today { border-color: #64ffda; } .calendar-day.selected { background-color: #64ffda; color: #0a192f; } .day-number { font-weight: bold; margin-bottom: 4px; } .day-rainfall { font-size: 1.1em; color: #82d8c3; font-weight: bold; } #daily-details-container { margin-top: 30px; border-top: 2px solid #1a3d6e; padding-top: 20px;}
         .day-rainfall-details { margin-top: 5px; flex-grow: 1; overflow-y: auto; } .station-rain { display: flex; justify-content: space-between; font-size: 0.75em; color: #a8b2d1; padding: 1px 0; } .station-rain span { font-weight: bold; color: #8892b0; margin-right: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60px; }
         .spraying-window-container { display: flex; flex-direction: column; } .spraying-window-bar { display: flex; width: 100%; height: 80px; border-radius: 5px; overflow: hidden; border: 1px solid #1a3d6e; } .spray-hour { flex: 1; text-align: center; color: rgba(255,255,255,0.9); user-select: none; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 4px 0; } .spray-hour-content { display: flex; flex-direction: column; gap: 2px; } .spray-hour-time { font-size: 1em; font-weight: bold; } .spray-hour-value { font-size: 0.75em; line-height: 1; }
@@ -340,13 +295,7 @@ class RelatorioClimaCompleto:
     </style>
 </head>
 <body>
-    <div id="loading" class="loading-overlay">
-        <div class="loader"></div>
-        <h3 style="margin-top: 20px; color: #64ffda;">Carregando dados climáticos...</h3>
-        <p id="loading-text" style="color: #8892b0;">Baixando histórico...</p>
-    </div>
-
-    <div id="main-content" class="container">
+    <div class="container">
         <h1>Relatório Climático - __GROWER_NAME__</h1>
         <div class="header">
             <div><label for="start-date">Data Início:</label><input type="date" id="start-date"></div>
@@ -414,10 +363,11 @@ class RelatorioClimaCompleto:
             </div>
         </div>
     </div>
+    <script id="dados-climaticos" type="application/json">__JSON_DATA__</script>
     <script id="dados-geograficos" type="application/json">__GEODATA__</script>
     <script id="dados-todas-previsoes" type="application/json">__JSON_ALL_FORECASTS__</script>
     <script>
-        const MESES_PT_BR = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]; const CARDINAL_DIRECTIONS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']; const SPRAY_COLORS = { Ideal: '#28a745', Atenção: '#ffc107', Evitar: '#dc3545', NoData: '#6c757d' }; let map, geoData, allData = [], allForecastData, charts = {}; let fieldLayers = {}, stationMarkers = {}, mapLegend; let calendarDate = new Date(); let currentFilteredData = []; let currentDailyAggregated = []; let selectedCalendarDay = null; let stationColors = {};
+        const MESES_PT_BR = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]; const CARDINAL_DIRECTIONS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW']; const SPRAY_COLORS = { Ideal: '#28a745', Atenção: '#ffc107', Evitar: '#dc3545', NoData: '#6c757d' }; let map, geoData, allData, allForecastData, charts = {}; let fieldLayers = {}, stationMarkers = {}, mapLegend; let calendarDate = new Date(); let currentFilteredData = []; let currentDailyAggregated = []; let selectedCalendarDay = null; let stationColors = {};
         const mapMetricsConfig = { chuva: { key: 'precipitacao_mm', agg: 'sum', label: 'Chuva Acumulada', unit: 'mm', colors: ['#f7fbff', '#deebf7', '#c6dbef', '#9ecae1', '#6baed6', '#4292c6', '#2171b5', '#08519c', '#08306b'] }, temp_media: { key: 'temp_media_c', agg: 'avg', label: 'Temperatura Média', unit: '°C', colors: ['#fff5f0', '#fee0d2', '#fcbba1', '#fc9272', '#fb6a4a', '#ef3b2c', '#cb181d', '#a50f15', '#67000d'] }, umidade_media: { key: 'umidade_media_perc', agg: 'avg', label: 'Umidade Média', unit: '%', colors: ['#f7fcf5', '#e5f5e0', '#c7e9c0', '#a1d99b', '#74c476', '#41ab5d', '#238b45', '#006d2c', '#00441b'] }, vento_medio: { key: 'vento_medio_kph', agg: 'avg', label: 'Vento Médio', unit: 'km/h', colors: ['#fcfbfd', '#efedf5', '#dadaeb', '#bcbddc', '#9e9ac8', '#807dba', '#6a51a3', '#54278f', '#3f007d'] }, rajada_max: { key: 'rajada_max_kph', agg: 'max', label: 'Rajada Máxima', unit: 'km/h', colors: ['#ffffe5', '#fff7bc', '#fee391', '#fec44f', '#fe9929', '#ec7014', '#cc4c02', '#993404', '#662506'] } };
         const ALERT_THRESHOLDS = { RAIN_LIMIT: 50, GUST_LIMIT: 50, TEMP_HIGH: 40, TEMP_LOW: 5, HUM_LOW: 20, DELTA_T_HIGH: 9 };
         function openTab(evt, tabName) { document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active')); document.querySelectorAll('.tab-button').forEach(tb => tb.classList.remove('active')); document.getElementById(tabName).classList.add('active'); evt.currentTarget.classList.add('active'); if (tabName === 'tabMapa' && map) { setTimeout(() => map.invalidateSize(), 10); } }
@@ -506,47 +456,11 @@ class RelatorioClimaCompleto:
 
         document.addEventListener('DOMContentLoaded', function() {
             Chart.register(ChartDataLabels); Chart.defaults.plugins.datalabels.display = false; Chart.defaults.color = '#a8b2d1'; Chart.defaults.borderColor = 'rgba(136, 146, 176, 0.2)';
-            
-            // --- CARREGAMENTO INICIAL ---
+            allData = JSON.parse(document.getElementById('dados-climaticos').textContent).map(d => { d.datetime = new Date(d.datetime); return d; });
             geoData = JSON.parse(document.getElementById('dados-geograficos').textContent);
             allForecastData = JSON.parse(document.getElementById('dados-todas-previsoes').textContent);
 
-            const loadingText = document.getElementById('loading-text');
-
-            // --- FETCH PARA CARREGAR OS DADOS PESADOS EXTERNAMENTE ---
-            fetch('dados_climaticos.json')
-                .then(response => {
-                    if (!response.ok) throw new Error("Erro HTTP: " + response.status);
-                    const contentLength = response.headers.get('Content-Length');
-                    if (!contentLength) {
-                        loadingText.innerText = "Baixando histórico (tamanho desconhecido)...";
-                    } else {
-                        const sizeMB = (contentLength / (1024 * 1024)).toFixed(1);
-                        loadingText.innerText = `Baixando histórico (${sizeMB} MB)...`;
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    loadingText.innerText = "Processando dados...";
-                    // Timeout pequeno para renderizar o texto antes de travar o processamento
-                    setTimeout(() => {
-                        allData = data.map(d => { d.datetime = new Date(d.datetime); return d; });
-                        
-                        // Oculta loading e mostra dashboard
-                        document.getElementById('loading').style.display = 'none';
-                        document.getElementById('main-content').style.display = 'block';
-
-                        iniciarDashboard();
-                    }, 50);
-                })
-                .catch(err => {
-                    console.error(err);
-                    loadingText.innerText = "Erro ao carregar dados: " + err.message;
-                    loadingText.style.color = "#ff6b6b";
-                });
-        });
-        
-        function iniciarDashboard() { 
+            function iniciarDashboard() { 
                 if (allData.length === 0 && (!geoData || !geoData.fields || geoData.fields.length === 0)) { document.querySelector('.container').innerHTML = '<h1>Nenhum dado encontrado para gerar o relatório.</h1>'; return; }; 
                 if (allData.length > 0) { 
                     const stationFilter = document.getElementById('station-filter'); const forecastStationFilter = document.getElementById('forecast-station-selector'); 
@@ -579,9 +493,11 @@ class RelatorioClimaCompleto:
                 charts.tempUmidadeDiario = new Chart(document.getElementById('chartTempUmidadeDiario'), {type: 'line', options: {...commonOptions, scales: { x: commonOptions.scales.x, y_temp: { type: 'linear', position: 'left', title: { display: true, text: 'Temperatura (°C)', color: '#ff9f40' } }, y_rh: { type: 'linear', position: 'right', title: { display: true, text: 'Umidade (%)', color: '#4bc0c0' }, grid: { drawOnChartArea: false } } } }}); 
                 charts.ventoRosaDiario = new Chart(document.getElementById('chartVentoRosaDiario'), { type: 'polarArea', options: { ...commonOptions, plugins: {...commonOptions.plugins, legend: {position: 'right'}}, scales: { r: { ticks: { backdropColor: 'rgba(0,0,0,0.5)', color: 'white' } } } } }); 
                 
+                // --- NOVOS GRÁFICOS DE RADIAÇÃO (CONFIGURAÇÃO) ---
                 charts.radPorDia = new Chart(document.getElementById('chartRadPorDia'), { type: 'bar', options: { ...commonOptions, plugins: { legend: { display: false } } }, data: { labels: [], datasets: [{ label: 'Radiação (MJ/m²)', data: [], backgroundColor: '#ff9f40' }] } });
                 charts.radPorHora = new Chart(document.getElementById('chartRadPorHora'), { type: 'bar', options: { ...commonOptions, plugins: { legend: { display: false } }, scales: { x: { title: { display: true, text: 'Hora do Dia' } } } }, data: { labels: Array(24).fill(0).map((_, i) => `${i}h`), datasets: [{ label: 'Média Horária (MJ/m²)', data: [], backgroundColor: '#36a2eb' }] } });
                 
+                // --- AJUSTE VISUAL: categoryPercentage e barPercentage em 1.0 para remover espaços ---
                 charts.radDetalhado = new Chart(document.getElementById('chartRadDetalhado'), { type: 'bar', options: { ...commonOptions, maintainAspectRatio: false, scales: { x: { grid: { display: false } } }, categoryPercentage: 1.0, barPercentage: 1.0, plugins: { legend: { display: false } } }, data: { labels: [], datasets: [{ label: 'Radiação Horária', data: [], backgroundColor: '#ffcd56' }] } });
 
                 document.getElementById('start-date').addEventListener('change', atualizarTudo); document.getElementById('end-date').addEventListener('change', atualizarTudo); document.getElementById('station-filter').addEventListener('change', atualizarTudo); document.getElementById('forecast-station-selector').addEventListener('change', updateForecastDisplay); document.getElementById('map-metric-selector').addEventListener('change', atualizarMapa); document.getElementById('prev-month-btn').addEventListener('click', () => { calendarDate.setUTCMonth(calendarDate.getUTCMonth() - 1); renderCalendar(calendarDate); }); document.getElementById('next-month-btn').addEventListener('click', () => { calendarDate.setUTCMonth(calendarDate.getUTCMonth() + 1); renderCalendar(calendarDate); }); 
@@ -612,15 +528,18 @@ class RelatorioClimaCompleto:
                 
                 // --- ATUALIZAÇÃO RADIAÇÃO (COM FILTRO RÍGIDO >= 05/11/2025) ---
                 const dataInicioRad = new Date('2025-11-05T00:00:00Z');
+
                 // 1. Filtra os dados agregados por dia para mostrar apenas >= 05/11/2025
                 const radDailyData = dailyAggregated.filter(d => d.data_str >= '2025-11-05');
                 const labelsDia = radDailyData.map(d => d.data_str);
                 const dataRadDia = radDailyData.map(d => d.radiacao_solar_total);
+                
                 // 2. Filtra os dados brutos (horários) para mostrar médias apenas >= 05/11/2025
                 const radRawData = data.filter(d => d.datetime >= dataInicioRad);
                 const radPorHora = Array(24).fill(0).map(() => []);
                 radRawData.forEach(d => { if (d.radiacao_solar !== null) radPorHora[d.datetime.getUTCHours()].push(d.radiacao_solar); });
                 const dataRadHoraMedia = radPorHora.map(vals => vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0);
+                
                 // 3. Garante que os dados detalhados estejam ordenados cronologicamente
                 const radRawSorted = radRawData.sort((a,b) => a.datetime - b.datetime);
                 const labelsDetalhado = radRawSorted.map(d => { const dt = d.datetime; return `${dt.getUTCDate()}/${dt.getUTCMonth()+1} ${dt.getUTCHours()}h`; });
@@ -636,6 +555,8 @@ class RelatorioClimaCompleto:
 
                 charts.radPorDia.data.labels = labelsDia; charts.radPorDia.data.datasets[0].data = dataRadDia; charts.radPorDia.update();
                 charts.radPorHora.data.datasets[0].data = dataRadHoraMedia; charts.radPorHora.update();
+                
+                // Atualiza o gráfico detalhado com os dados estritamente filtrados e ordenados
                 charts.radDetalhado.data.labels = labelsDetalhado; charts.radDetalhado.data.datasets[0].data = dataRadDetalhado; charts.radDetalhado.update();
             }
             function renderCalendar(date) { const year = date.getUTCFullYear(); const month = date.getUTCMonth(); document.getElementById('month-year-header').innerText = `${MESES_PT_BR[month]} de ${year}`; const grid = document.getElementById('calendar-grid'); grid.innerHTML = ''; const firstDay = new Date(Date.UTC(year, month, 1)).getUTCDay(); const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate(); const today = new Date(); const todayStr = today.toISOString().split('T')[0]; const selectedStation = document.getElementById('station-filter').value; for (let i = 0; i < firstDay; i++) { grid.innerHTML += '<div class="calendar-day empty"></div>'; } for (let i = 1; i <= daysInMonth; i++) { const dayStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`; const dayData = currentDailyAggregated.find(d => d.data_str === dayStr); const dayEl = document.createElement('div'); dayEl.className = 'calendar-day'; if (dayStr === todayStr) dayEl.classList.add('today'); if (dayStr === selectedCalendarDay) dayEl.classList.add('selected'); let content = `<div class="day-number">${i}</div>`; if (dayData && dayData.precipitacao_mm > 0) { if (selectedStation === 'todas') { content += '<div class="day-rainfall-details">'; for (const stationName in dayData.precip_by_station) { const rain = dayData.precip_by_station[stationName]; content += `<div class="station-rain"><span>${stationName.substring(0,8)}</span> ${fNum(rain)} mm</div>`; } content += '</div>'; } else { content += `<div class="day-rainfall">${fNum(dayData.precipitacao_mm)} mm</div>`; } } dayEl.innerHTML = content; dayEl.addEventListener('click', () => showDailyDetails(dayStr, currentFilteredData)); grid.appendChild(dayEl); } }
@@ -695,6 +616,7 @@ class RelatorioClimaCompleto:
                 finalHtml += '</div></div>'; container.innerHTML = finalHtml;
             }
             Chart.getSpacedColors = function(count) { const colors = []; for (let i = 0; i < count; i++) { const hue = (360 / count) * i; colors.push(`hsl(${hue}, 70%, 60%)`); } return colors; };
+            iniciarDashboard();
         });
     </script>
 </body>
@@ -702,9 +624,12 @@ class RelatorioClimaCompleto:
         """
 
         html_final = html_template.replace('__GROWER_NAME__', geodata.get('grower_name', 'Cliente'))
+        html_final = html_final.replace('__JSON_DATA__', json_data)
         html_final = html_final.replace('__GEODATA__', json_geodata)
         html_final = html_final.replace('__JSON_ALL_FORECASTS__', json_all_forecasts)
         
+        output_dir = "dist"
+        os.makedirs(output_dir, exist_ok=True)
         filename = os.path.join(output_dir, "index.html")
         
         with open(filename, 'w', encoding='utf-8') as f:
@@ -761,6 +686,7 @@ class RelatorioClimaCompleto:
             'stations': self.stations_info
         }
         
+        # Remoção da predição: chama gerar_html_final apenas com os dados reais e previsão
         self.gerar_html_final(df_completo, geodata, all_forecasts)
 
 
@@ -795,5 +721,3 @@ if __name__ == "__main__":
         import traceback
         traceback.print_exc()
         exit(1)
-
-
